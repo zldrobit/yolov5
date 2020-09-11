@@ -1,0 +1,20 @@
+# Supermarket dataset version 4 (SM4)
+# Train command: --batch 64 --weights yolov5s.pt --data sm4.yaml --epochs 50 --cache --img 640 --single --nosave --name yolov5s_sm4_640
+# Default dataset location is next to /yolov5:
+#   /parent_folder
+#     /data/sm4
+#     /yolov5
+
+
+# download command/URL (optional)
+download: python -c "from utils.google_utils import *; gdrive_download('13g3LqdpkNE8sPosVJT6KFXlfoMypzRP4', 'sm4.zip')" && mkdir ../data && mv ./sm4 ../data
+
+# train and val data as 1) directory: path/images/, 2) file: path/images.txt, or 3) list: [path1/images/, path2/images/]
+train: ../data/sm4/outb_train.txt  # 4817 images
+val: ../data/sm4/outb_test.txt  # 534 images
+
+# number of classes
+nc: 3
+
+# class names
+names: ['meat', 'produce', 'product']
