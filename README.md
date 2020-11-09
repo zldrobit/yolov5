@@ -3,7 +3,7 @@ This branch provides detection and Android code complement to branch `tf-only-ex
 `models/tf.py` uses TF2 API to construct a tf.Keras model according to `*.yaml` config files and reads weights from `*.pt`, without using ONNX. 
 
 ## Usage
-# 1. Git clone `yolov5` and checkout `tf-android`
+### 1. Git clone `yolov5` and checkout `tf-android`
 ```
 git clone https://github.com/zldrobit/yolov5.git
 cd yolov5
@@ -14,13 +14,13 @@ and download pretrained weights from
 https://github.com/ultralytics/yolov5.git
 ```
 
-# 2. Install requirements
+### 2. Install requirements
 ```
 pip install -r requirements.txt
 pip install tensorflow==2.3.1
 ```
 
-# 3. Convert and verify
+### 3. Convert and verify
 - Convert weights to TensorFlow SavedModel and GraphDef, and verify them with
 ```
 PYTHONPATH=. python models/tf.py --weights weights/yolov5s.pt --cfg models/yolov5s.yaml --img 640
@@ -44,7 +44,7 @@ PYTHONPATH=. python3  models/tf.py --weight weights/yolov5s.pt --cfg models/yolo
 python3 detect.py --weight weights/yolov5s-int8.tflite --img 640 --tfl-int8 --tfl-detect
 ```
 
-# 4. Put TFLite models in `assets` folder of Android project, and change 
+### 4. Put TFLite models in `assets` folder of Android project, and change 
 - `inputSize` to `--img`
 - `output_width` according to new/old `inputSize` ratio
 - `anchors` to `m.anchor_grid` as https://github.com/ultralytics/yolov5/pull/1127#issuecomment-714651073
