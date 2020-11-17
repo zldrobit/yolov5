@@ -2,6 +2,8 @@
 This branch provides detection and Android code complement to branch `tf-only-export`.
 `models/tf.py` uses TF2 API to construct a tf.Keras model according to `*.yaml` config files and reads weights from `*.pt`, without using ONNX. 
 
+**Because this branch persistently rebases to master branch of ultralytics/yolov5, use `git pull --rebase` instead of `git pull`.**
+
 ## Usage
 ### 1. Git clone `yolov5` and checkout `tf-android`
 ```
