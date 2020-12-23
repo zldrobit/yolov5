@@ -7,6 +7,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import yaml
 from numpy import random
+import numpy as np
 
 from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
@@ -122,9 +123,17 @@ def detect(save_img=False):
                 pred = frozen_func(x=tf.constant(img.permute(0, 2, 3, 1).cpu().numpy())).numpy()
             elif backend == 'tflite':
                 input_data = img.permute(0, 2, 3, 1).cpu().numpy()
+                if opt.tfl_int8:
+                    scale, zero_point = input_details[0]['quantization']
+                    input_data = input_data / scale + zero_point
+                    input_data = input_data.astype(np.uint8)
                 interpreter.set_tensor(input_details[0]['index'], input_data)
                 interpreter.invoke()
                 pred = interpreter.get_tensor(output_details[0]['index'])
+                if opt.tfl_int8:
+                    scale, zero_point = output_details[0]['quantization']
+                    pred = pred.astype(np.float32)
+                    pred = (pred - zero_point) * scale
             pred = torch.tensor(pred)
 
         # Apply NMS
@@ -218,6 +227,7 @@ if __name__ == '__main__':
     parser.add_argument('--project', default='runs/detect', help='save results to project/name')
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--tfl-int8', action='store_true', help='use int8 quantized TFLite model')
     opt = parser.parse_args()
     print(opt)
 
