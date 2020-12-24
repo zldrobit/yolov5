@@ -25,10 +25,10 @@ backbone:
    [-1, 4, Bottleneck, [1024]],  # 10
   ]
 
-# YOLOv3-SPP head
+# YOLOv3 head
 head:
   [[-1, 1, Bottleneck, [1024, False]],
-   [-1, 1, SPP, [512, [5, 9, 13]]],
+   [-1, 1, Conv, [512, [1, 1]]],
    [-1, 1, Conv, [1024, 3, 1]],
    [-1, 1, Conv, [512, 1, 1]],
    [-1, 1, Conv, [1024, 3, 1]],  # 15 (P5/32-large)

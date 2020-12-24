@@ -5,7 +5,6 @@ Usage:
     model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True, channels=3, classes=80)
 """
 
-dependencies = ['torch', 'yaml']
 from pathlib import Path
 
 import torch
@@ -14,6 +13,7 @@ from models.yolo import Model
 from utils.general import set_logging
 from utils.google_utils import attempt_download
 
+dependencies = ['torch', 'yaml']
 set_logging()
 
 
@@ -41,7 +41,7 @@ def create(name, pretrained, channels, classes):
             model.load_state_dict(state_dict, strict=False)  # load
             if len(ckpt['model'].names) == classes:
                 model.names = ckpt['model'].names  # set class names attribute
-            # model = model.autoshape()  # for autoshaping of PIL/cv2/np inputs and NMS
+            # model = model.autoshape()  # for PIL/cv2/np inputs and NMS
         return model
 
     except Exception as e:
@@ -106,13 +106,36 @@ def yolov5x(pretrained=False, channels=3, classes=80):
     return create('yolov5x', pretrained, channels, classes)
 
 
+def custom(path_or_model='path/to/model.pt'):
+    """YOLOv5-custom model from https://github.com/ultralytics/yolov5
+
+    Arguments (3 options):
+        path_or_model (str): 'path/to/model.pt'
+        path_or_model (dict): torch.load('path/to/model.pt')
+        path_or_model (nn.Module): torch.load('path/to/model.pt')['model']
+
+    Returns:
+        pytorch model
+    """
+    model = torch.load(path_or_model) if isinstance(path_or_model, str) else path_or_model  # load checkpoint
+    if isinstance(model, dict):
+        model = model['model']  # load model
+
+    hub_model = Model(model.yaml).to(next(model.parameters()).device)  # create
+    hub_model.load_state_dict(model.float().state_dict())  # load state_dict
+    hub_model.names = model.names  # class names
+    return hub_model
+
+
 if __name__ == '__main__':
-    model = create(name='yolov5s', pretrained=True, channels=3, classes=80)  # example
-    model = model.fuse().eval().autoshape()  # for autoshaping of PIL/cv2/np inputs and NMS
+    model = create(name='yolov5s', pretrained=True, channels=3, classes=80)  # pretrained example
+    # model = custom(path_or_model='path/to/model.pt')  # custom example
+    model = model.autoshape()  # for PIL/cv2/np inputs and NMS
 
     # Verify inference
     from PIL import Image
 
-    img = Image.open('data/images/zidane.jpg')
-    y = model(img)
-    print(y[0].shape)
+    imgs = [Image.open(x) for x in Path('data/images').glob('*.jpg')]
+    results = model(imgs)
+    results.show()
+    results.print()

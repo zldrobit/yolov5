@@ -4,16 +4,20 @@ This branch provides detection and Android code complement to branch `tf-only-ex
 
 **Because this branch persistently rebases to master branch of ultralytics/yolov5, use `git pull --rebase` instead of `git pull`.**
 
+
 ## Usage
 ### 1. Git clone `yolov5` and checkout `tf-android`
+
 ```
 git clone https://github.com/zldrobit/yolov5.git
 cd yolov5
 git checkout tf-android
 ```
+
 and download pretrained weights from 
 ```
 https://github.com/ultralytics/yolov5.git
+
 ```
 
 ### 2. Install requirements
