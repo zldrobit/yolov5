@@ -429,58 +429,57 @@ if __name__ == "__main__":
         traceback.print_exc(file=sys.stdout)
 
     # TFLite model export
-    if not opt.tf_nms:
-        try:
-            print('\nStarting TFLite export with TensorFlow %s...' % tf.__version__)
-            if opt.no_tfl_detect:
-                print("Don't export Detect module")
-                m.training = True
-                keras_model = keras.Model(inputs=inputs, outputs=tf_model.predict(inputs))
+    try:
+        print('\nStarting TFLite export with TensorFlow %s...' % tf.__version__)
+        if opt.no_tfl_detect:
+            print("Don't export Detect module")
+            m.training = True
+            keras_model = keras.Model(inputs=inputs, outputs=tf_model.predict(inputs))
 
-            # fp32 TFLite model export ---------------------------------------------------------------------------------
-            # converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
-            # converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
-            # converter.allow_custom_ops = False
-            # converter.experimental_new_converter = True
-            # tflite_model = converter.convert()
-            # f = opt.weights.replace('.pt', '.tflite')  # filename
-            # open(f, "wb").write(tflite_model)
+        # fp32 TFLite model export ---------------------------------------------------------------------------------
+        # converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
+        # converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
+        # converter.allow_custom_ops = False
+        # converter.experimental_new_converter = True
+        # tflite_model = converter.convert()
+        # f = opt.weights.replace('.pt', '.tflite')  # filename
+        # open(f, "wb").write(tflite_model)
 
-            # fp16 TFLite model export ---------------------------------------------------------------------------------
+        # fp16 TFLite model export ---------------------------------------------------------------------------------
+        converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
+        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+        # converter.representative_dataset = representative_dataset_gen
+        # converter.target_spec.supported_types = [tf.float16]
+        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS, tf.lite.OpsSet.SELECT_TF_OPS]
+        converter.allow_custom_ops = False
+        converter.experimental_new_converter = True
+        tflite_model = converter.convert()
+        f = opt.weights.replace('.pt', '-fp16.tflite')  # filename
+        open(f, "wb").write(tflite_model)
+        print('\nTFLite export success, saved as %s' % f)
+
+        # int8 TFLite model export ---------------------------------------------------------------------------------
+        if opt.tfl_int8:
+            # Representative Dataset
+            if opt.source.endswith('.yaml'):
+                with open(check_file(opt.source)) as f:
+                    data = yaml.load(f, Loader=yaml.FullLoader)  # data dict
+                    check_dataset(data)  # check
+                opt.source = data['train']
+            dataset = LoadImages(opt.source, img_size=opt.img_size, auto=False)
             converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
             converter.optimizations = [tf.lite.Optimize.DEFAULT]
-            # converter.representative_dataset = representative_dataset_gen
-            # converter.target_spec.supported_types = [tf.float16]
-            converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
+            converter.representative_dataset = representative_dataset_gen
+            converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8, tf.lite.OpsSet.SELECT_TF_OPS]
+            converter.inference_input_type = tf.uint8  # or tf.int8
+            converter.inference_output_type = tf.uint8  # or tf.int8
             converter.allow_custom_ops = False
             converter.experimental_new_converter = True
             tflite_model = converter.convert()
-            f = opt.weights.replace('.pt', '-fp16.tflite')  # filename
+            f = opt.weights.replace('.pt', '-int8.tflite')  # filename
             open(f, "wb").write(tflite_model)
-            print('\nTFLite export success, saved as %s' % f)
+            print('\nTFLite (int8) export success, saved as %s' % f)
 
-            # int8 TFLite model export ---------------------------------------------------------------------------------
-            if opt.tfl_int8:
-                # Representative Dataset
-                if opt.source.endswith('.yaml'):
-                    with open(check_file(opt.source)) as f:
-                        data = yaml.load(f, Loader=yaml.FullLoader)  # data dict
-                        check_dataset(data)  # check
-                    opt.source = data['train']
-                dataset = LoadImages(opt.source, img_size=opt.img_size, auto=False)
-                converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
-                converter.optimizations = [tf.lite.Optimize.DEFAULT]
-                converter.representative_dataset = representative_dataset_gen
-                converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-                converter.inference_input_type = tf.uint8  # or tf.int8
-                converter.inference_output_type = tf.uint8  # or tf.int8
-                converter.allow_custom_ops = False
-                converter.experimental_new_converter = True
-                tflite_model = converter.convert()
-                f = opt.weights.replace('.pt', '-int8.tflite')  # filename
-                open(f, "wb").write(tflite_model)
-                print('\nTFLite (int8) export success, saved as %s' % f)
-
-        except Exception as e:
-            print('\nTFLite export failure: %s' % e)
-            traceback.print_exc(file=sys.stdout)
+    except Exception as e:
+        print('\nTFLite export failure: %s' % e)
+        traceback.print_exc(file=sys.stdout)
