@@ -5,6 +5,7 @@ import sys
 import traceback
 from copy import deepcopy
 from pathlib import Path
+import math
 
 import numpy as np
 import tensorflow as tf
@@ -15,7 +16,7 @@ from tensorflow import keras
 from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
 
 from models.common import Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, Concat, autopad, C3
-from models.experimental import MixConv2d, CrossConv
+from models.experimental import MixConv2d, CrossConv, GhostBottleneck
 from models.yolo import Detect
 from utils.datasets import LoadImages
 from utils.general import make_divisible, check_file, check_dataset
@@ -52,13 +53,13 @@ class tf_Conv(keras.layers.Layer):
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True, w=None):
         # ch_in, ch_out, weights, kernel, stride, padding, groups
         super(tf_Conv, self).__init__()
-        assert g == 1, "TF v2.2 Conv2D does not support 'groups' argument"
+        # assert g == 1, "TF v2.2 Conv2D does not support 'groups' argument"
         assert isinstance(k, int), "Convolution with multiple kernels are not allowed."
         # TensorFlow convolution padding is inconsistent with PyTorch (e.g. k=3 s=2 'SAME' padding)
         # see https://stackoverflow.com/questions/52975843/comparing-conv2d-with-padding-between-tensorflow-and-pytorch
 
         conv = keras.layers.Conv2D(
-            c2, k, s, 'SAME' if s == 1 else 'VALID', use_bias=False,
+            c2, k, s, 'SAME' if s == 1 else 'VALID', use_bias=False, groups=g,
             kernel_initializer=keras.initializers.Constant(w.conv.weight.permute(2, 3, 1, 0).numpy()))
         self.conv = conv if s == 1 else keras.Sequential([tf_Pad(autopad(k, p)), conv])
         self.bn = tf_BN(w.bn) if hasattr(w, 'bn') else tf.identity
@@ -70,6 +71,11 @@ class tf_Conv(keras.layers.Layer):
             self.act = (lambda x: x * tf.nn.relu6(x + 3) * 0.166666667) if act else tf.identity
         elif isinstance(w.act, nn.SiLU):
             self.act = (lambda x: keras.activations.swish(x)) if act else tf.identity
+        elif isinstance(w.act, nn.Identity):
+            # import pdb
+            # pdb.set_trace()
+            # raise ValueError("Activation is not one of the pre-define types.")
+            self.act = tf.identity
 
     def call(self, inputs):
         return self.act(self.bn(self.conv(inputs)))
@@ -107,14 +113,49 @@ class tf_Conv2d(keras.layers.Layer):
     # Substitution for PyTorch nn.Conv2D
     def __init__(self, c1, c2, k, s=1, g=1, bias=True, w=None):
         super(tf_Conv2d, self).__init__()
-        assert g == 1, "TF v2.2 Conv2D does not support 'groups' argument"
+        # assert g == 1, "TF v2.2 Conv2D does not support 'groups' argument"
         self.conv = keras.layers.Conv2D(
-            c2, k, s, 'VALID', use_bias=bias,
+            c2, k, s, 'VALID', use_bias=bias, groups=g,
             kernel_initializer=keras.initializers.Constant(w.weight.permute(2, 3, 1, 0).numpy()),
             bias_initializer=keras.initializers.Constant(w.bias.numpy()) if bias else None, )
 
     def call(self, inputs):
         return self.conv(inputs)
+
+
+def tf_DWConv(c1, c2, k=1, s=1, act=True, w=None):
+    # Depthwise convolution
+    return tf_Conv(c1, c2, k, s, g=math.gcd(c1, c2), act=act, w=w)
+
+
+class tf_GhostConv(keras.layers.Layer):
+    # Ghost Convolution https://github.com/huawei-noah/ghostnet
+    def __init__(self, c1, c2, k=1, s=1, g=1, act=True, w=None):  # ch_in, ch_out, kernel, stride, groups
+        super(tf_GhostConv, self).__init__()
+        c_ = c2 // 2  # hidden channels
+        self.cv1 = tf_Conv(c1, c_, k, s, None, g, act, w=w.cv1)
+        self.cv2 = tf_Conv(c_, c_, 5, 1, None, c_, act, w=w.cv2)
+
+    def call(self, inputs):
+        y = self.cv1(inputs)
+        return tf.concat((y, self.cv2(y)), axis=3)
+
+
+class tf_GhostBottleneck(keras.layers.Layer):
+    # Ghost Bottleneck https://github.com/huawei-noah/ghostnet
+    def __init__(self, c1, c2, k=3, s=1, w=None):  # ch_in, ch_out, kernel, stride
+        super(tf_GhostBottleneck, self).__init__()
+        c_ = c2 // 2
+        self.conv = keras.Sequential([
+            tf_GhostConv(c1, c_, 1, 1, w=w.conv[0]),  # pw
+            tf_DWConv(c_, c_, k, s, act=False, w=w.conv[1]) if s == 2 else keras.layers.Lambda(tf.identity),  # dw
+            tf_GhostConv(c_, c2, 1, 1, act=False, w=w.conv[2])])  # pw-linear
+        self.shortcut = keras.Sequential([
+            tf_DWConv(c1, c1, k, s, act=False, w=w.shortcut[0]),
+            tf_Conv(c1, c2, 1, 1, act=False, w=w.shortcut[1])]) if s == 2 else tf.identity
+
+    def call(self, inputs):
+        return self.conv(inputs) + self.shortcut(inputs)
 
 
 class tf_BottleneckCSP(keras.layers.Layer):
@@ -254,7 +295,8 @@ def parse_model(d, ch, model):  # model_dict, input_channels(3)
                 pass
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in [nn.Conv2d, Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3]:
+        if m in [nn.Conv2d, Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3, 
+                 GhostBottleneck]:
             c1, c2 = ch[f], args[0]
             c2 = make_divisible(c2 * gw, 8) if c2 != no else c2
 
@@ -384,6 +426,19 @@ if __name__ == "__main__":
     model.model[-1].export = False  # set Detect() layer export=True
     y = model(img)  # dry run
     nc = y[0].shape[-1] - 5
+
+    # Limit GPU memory
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            # Currently, memory growth needs to be the same across GPUs
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+        except RuntimeError as e:
+            # Memory growth must be set before GPUs have been initialized
+            print(e)
 
     # TensorFlow saved_model export
     try:
