@@ -321,8 +321,20 @@ class tf_Model():
             probs = x[0][:, :, 4:5]
             classes = x[0][:, :, 5:]
             scores = probs * classes
-            nms = tf.image.combined_non_max_suppression(
-                boxes, scores, opt.topk_per_class, opt.topk_all, opt.iou_thres, opt.score_thres, clip_boxes=False)
+            if not opt.agnostic_nms:
+                nms = tf.image.combined_non_max_suppression(
+                    boxes, scores, opt.topk_per_class, opt.topk_all, opt.iou_thres, opt.score_thres, clip_boxes=False)
+            else:
+                scores_ = tf.math.reduce_max(scores, axis=-1)
+                classes_ = tf.math.argmax(scores, axis=-1)
+                ind = tf.image.non_max_suppression(
+                    boxes, scores_, opt.topk_all, opt.iou_thres, opt.score_thres)
+                nmsed_boxes = tf.gather_nd(boxes, ind)
+                nmsed_scores = scores_
+                nmsed_classes = classes_
+                valid_detections = tf.math.reduce_sum(ind, axis=-1)
+                nms = (nmsed_boxes, nmsed_scores, nmsed_classes, valid_detections)
+
             return nms, x[1]
 
         return x[0]  # output only first tensor [1,6300,85] = [xywh, conf, class0, class1, ...]
@@ -369,6 +381,7 @@ if __name__ == "__main__":
     parser.add_argument('--topk-all', type=int, default=100, help='topk for all classes to keep in NMS')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--score-thres', type=float, default=0.4, help='score threshold for NMS')
+    parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     opt = parser.parse_args()
     opt.cfg = check_file(opt.cfg)  # check file
     opt.img_size *= 2 if len(opt.img_size) == 1 else 1  # expand
