@@ -125,9 +125,18 @@ public class YoloV5Classifier implements Classifier {
         d.INPUT_SIZE = inputSize;
         d.imgData = ByteBuffer.allocateDirect(1 * d.INPUT_SIZE * d.INPUT_SIZE * 3 * numBytesPerChannel);
         d.imgData.order(ByteOrder.nativeOrder());
+        d.outData0 = ByteBuffer.allocateDirect(1 * d.MAX_DET * 4 * 4);
+        d.outData0.order(ByteOrder.nativeOrder());
+        d.outData1 = ByteBuffer.allocateDirect(1 * d.MAX_DET * 4);
+        d.outData1.order(ByteOrder.nativeOrder());
+        d.outData2 = ByteBuffer.allocateDirect(1 * d.MAX_DET * 4);
+        d.outData2.order(ByteOrder.nativeOrder());
+        d.outData3 = ByteBuffer.allocateDirect(1 * 4);
+        d.outData3.order(ByteOrder.nativeOrder());
         d.intValues = new int[d.INPUT_SIZE * d.INPUT_SIZE];
 
-        d.output_box = (int) ((Math.pow((inputSize / 32), 2) + Math.pow((inputSize / 16), 2) + Math.pow((inputSize / 8), 2)) * 3);
+//        d.output_box = (int) ((Math.pow((inputSize / 32), 2) + Math.pow((inputSize / 16), 2) + Math.pow((inputSize / 8), 2)) * 3);
+        d.output_box = 100;
 //        d.OUTPUT_WIDTH = output_width;
 //        d.MASKS = masks;
 //        d.ANCHORS = anchors;
@@ -143,8 +152,6 @@ public class YoloV5Classifier implements Classifier {
         int[] shape = d.tfLite.getOutputTensor(0).shape();
         int numClass = shape[shape.length - 1];
         d.numClass = numClass;
-        d.outData = ByteBuffer.allocateDirect(d.output_box * (numClass + 5) * numBytesPerChannel);
-        d.outData.order(ByteOrder.nativeOrder());
         return d;
     }
 
@@ -233,6 +240,8 @@ public class YoloV5Classifier implements Classifier {
 
     private static final int NUM_BOXES_PER_BLOCK = 3;
 
+    private static final int MAX_DET= 100;
+
     // Number of threads in the java app
     private static final int NUM_THREADS = 1;
     private static boolean isNNAPI = false;
@@ -258,7 +267,10 @@ public class YoloV5Classifier implements Classifier {
     private int[] intValues;
 
     private ByteBuffer imgData;
-    private ByteBuffer outData;
+    private ByteBuffer outData0;
+    private ByteBuffer outData1;
+    private ByteBuffer outData2;
+    private ByteBuffer outData3;
 
     private Interpreter tfLite;
     private float inp_scale;
@@ -352,9 +364,6 @@ public class YoloV5Classifier implements Classifier {
      * Writes Image data into a {@code ByteBuffer}.
      */
     protected ByteBuffer convertBitmapToByteBuffer(Bitmap bitmap) {
-//        ByteBuffer byteBuffer = ByteBuffer.allocateDirect(4 * BATCH_SIZE * INPUT_SIZE * INPUT_SIZE * PIXEL_SIZE);
-//        byteBuffer.order(ByteOrder.nativeOrder());
-//        int[] intValues = new int[INPUT_SIZE * INPUT_SIZE];
         bitmap.getPixels(intValues, 0, bitmap.getWidth(), 0, 0, bitmap.getWidth(), bitmap.getHeight());
         int pixel = 0;
 
@@ -379,12 +388,16 @@ public class YoloV5Classifier implements Classifier {
 
     public ArrayList<Recognition> recognizeImage(Bitmap bitmap) {
         ByteBuffer byteBuffer_ = convertBitmapToByteBuffer(bitmap);
-
         Map<Integer, Object> outputMap = new HashMap<>();
 
-//        float[][][] outbuf = new float[1][output_box][labels.size() + 5];
-        outData.rewind();
-        outputMap.put(0, outData);
+        outData0.rewind();
+        outData1.rewind();
+        outData2.rewind();
+        outData3.rewind();
+        outputMap.put(0, outData0);
+        outputMap.put(1, outData1);
+        outputMap.put(2, outData2);
+        outputMap.put(3, outData3);
         Log.d("YoloV5Classifier", "mObjThresh: " + getObjThresh());
 
         Object[] inputArray = {imgData};
@@ -395,47 +408,56 @@ public class YoloV5Classifier implements Classifier {
 
         ArrayList<Recognition> detections = new ArrayList<Recognition>();
 
-        float[][][] out = new float[1][output_box][numClass + 5];
+        float[][][] nmsed_boxes = new float[1][MAX_DET][4];
+        float[][] nmsed_scores = new float[1][MAX_DET];
+        float[][] nmsed_classes = new float[1][MAX_DET];
+        int[] valid_detections = new int[1];
         Log.d("YoloV5Classifier", "out[0] detect start");
-        for (int i = 0; i < output_box; ++i) {
-            for (int j = 0; j < numClass + 5; ++j) {
-                if (isModelQuantized){
-                    out[0][i][j] = oup_scale * (((int) byteBuffer.get() & 0xFF) - oup_zero_point);
-                }
-                else {
-                    out[0][i][j] = byteBuffer.getFloat();
-                }
-            }
+
+        int box = 0;
+        int coord = 0;
+        for (int i = 0; i < 1 * MAX_DET * 4; ++i) {
+            box = i / 4;
+            coord = i % 4;
+            nmsed_boxes[0][box][coord] = byteBuffer.getFloat();
+
             // Denormalize xywh
-            for (int j = 0; j < 4; ++j) {
-                out[0][i][j] *= getInputSize();
-            }
+            nmsed_boxes[0][box][coord] *= getInputSize();
         }
-        for (int i = 0; i < output_box; ++i){
+
+        byteBuffer = (ByteBuffer) outputMap.get(1);
+        byteBuffer.rewind();
+        for (int i = 0; i < 1 * MAX_DET; ++i) {
+            nmsed_scores[0][i] = byteBuffer.getFloat();
+        }
+
+        byteBuffer = (ByteBuffer) outputMap.get(2);
+        byteBuffer.rewind();
+        for (int i = 0; i < 1 * MAX_DET; ++i) {
+            nmsed_classes[0][i] = byteBuffer.getFloat();
+
+        }
+
+        byteBuffer = (ByteBuffer) outputMap.get(3);
+        byteBuffer.rewind();
+        valid_detections[0] = byteBuffer.getInt();
+
+        for (int i = 0; i < MAX_DET; ++i){
             final int offset = 0;
-            final float confidence = out[0][i][4];
-            int detectedClass = -1;
-            float maxClass = 0;
+            final float confidence = nmsed_scores[0][i];
+            int detectedClass = (int) nmsed_classes[0][i];
 
-            final float[] classes = new float[labels.size()];
-            for (int c = 0; c < labels.size(); ++c) {
-                classes[c] = out[0][i][5 + c];
-            }
+            if (nmsed_scores[0][i] > getObjThresh()) {
+                float x1 = nmsed_boxes[0][i][0];
+                float y1 = nmsed_boxes[0][i][1];
+                float x2 = nmsed_boxes[0][i][2];
+                float y2 = nmsed_boxes[0][i][3];
 
-            for (int c = 0; c < labels.size(); ++c) {
-                if (classes[c] > maxClass) {
-                    detectedClass = c;
-                    maxClass = classes[c];
-                }
-            }
+                final float xPos = (x1 + x2) / 2;
+                final float yPos = (y1 + y2) / 2;
 
-            final float confidenceInClass = maxClass * confidence;
-            if (confidenceInClass > getObjThresh()) {
-                final float xPos = out[0][i][0];
-                final float yPos = out[0][i][1];
-
-                final float w = out[0][i][2];
-                final float h = out[0][i][3];
+                final float w = x2 - x1;
+                final float h = y2 - y1;
                 Log.d("YoloV5Classifier",
                         Float.toString(xPos) + ',' + yPos + ',' + w + ',' + h);
 
@@ -446,14 +468,14 @@ public class YoloV5Classifier implements Classifier {
                                 Math.min(bitmap.getWidth() - 1, xPos + w / 2),
                                 Math.min(bitmap.getHeight() - 1, yPos + h / 2));
                 detections.add(new Recognition("" + offset, labels.get(detectedClass),
-                        confidenceInClass, rect, detectedClass));
+                        nmsed_scores[0][i], rect, detectedClass));
             }
         }
 
         Log.d("YoloV5Classifier", "detect end");
-        final ArrayList<Recognition> recognitions = nms(detections);
-//        final ArrayList<Recognition> recognitions = detections;
-        return recognitions;
+//        final ArrayList<Recognition> recognitions = nms(detections);
+//        return recognitions;
+        return detections;
     }
 
     public boolean checkInvalidateBox(float x, float y, float width, float height, float oriW, float oriH, int intputSize) {
