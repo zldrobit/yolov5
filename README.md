@@ -35,7 +35,7 @@ python3 detect.py --weight weights/yolov5s_saved_model/ --img 320
 ```
 - Convert weights to int8 TFLite model, and verify it with (Post-Training Quantization needs train or val images from [COCO 2017 dataset](https://cocodataset.org/#download))
 ```
-PYTHONPATH=. python3  models/tf.py --weight weights/yolov5s.pt --cfg models/yolov5s.yaml --img 320 --tfl-int8 --source /data/dataset/coco/coco2017/train2017 --ncalib 100
+PYTHONPATH=. python3  models/tf.py --weight weights/yolov5s.pt --cfg models/yolov5s.yaml --img 320 --tfl-int8 --source /data/dataset/coco/coco2017/train2017 --ncalib 100 --no-tfl-detect
 python3 detect.py --weight weights/yolov5s-int8.tflite --img 320 --tfl-int8
 ```
 - Convert weights to TensorFlow SavedModel and GraphDef **integrated with NMS**, and verify them with
