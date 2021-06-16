@@ -49,6 +49,7 @@ python3 detect.py --weight weights/yolov5s-int8.tflite --img 320 --tfl-int8 --tf
 ```
 # need Edge TPU runtime https://coral.ai/software/#edgetpu-runtime
 # and Edge TPU compiler https://coral.ai/software/#debian-packages
+mkdir edgetpu
 edgetpu_compiler -s -a -o edgetpu weights/yolov5s-int8.tflite
 python3 detect.py --weight edgetpu/yolov5s-int8_edgetpu.tflite --edgetpu --tfl-int8 --tfl-detect --img 320
 ```
