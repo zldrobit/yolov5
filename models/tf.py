@@ -29,10 +29,10 @@ class tf_BN(keras.layers.Layer):
     def __init__(self, w=None):
         super(tf_BN, self).__init__()
         self.bn = keras.layers.BatchNormalization(
-            beta_initializer=keras.initializers.Constant(w.bias.numpy()),
-            gamma_initializer=keras.initializers.Constant(w.weight.numpy()),
-            moving_mean_initializer=keras.initializers.Constant(w.running_mean.numpy()),
-            moving_variance_initializer=keras.initializers.Constant(w.running_var.numpy()))
+            beta_initializer=keras.initializers.Constant(w.bias.detach().numpy()),
+            gamma_initializer=keras.initializers.Constant(w.weight.detach().numpy()),
+            moving_mean_initializer=keras.initializers.Constant(w.running_mean.detach().numpy()),
+            moving_variance_initializer=keras.initializers.Constant(w.running_var.detach().numpy()))
 
     def call(self, inputs):
         return self.bn(inputs)
@@ -59,7 +59,7 @@ class tf_Conv(keras.layers.Layer):
 
         conv = keras.layers.Conv2D(
             c2, k, s, 'SAME' if s == 1 else 'VALID', use_bias=False,
-            kernel_initializer=keras.initializers.Constant(w.conv.weight.permute(2, 3, 1, 0).numpy()))
+            kernel_initializer=keras.initializers.Constant(w.conv.weight.permute(2, 3, 1, 0).detach().numpy()))
         self.conv = conv if s == 1 else keras.Sequential([tf_Pad(autopad(k, p)), conv])
         self.bn = tf_BN(w.bn) if hasattr(w, 'bn') else tf.identity
 
@@ -110,8 +110,8 @@ class tf_Conv2d(keras.layers.Layer):
         assert g == 1, "TF v2.2 Conv2D does not support 'groups' argument"
         self.conv = keras.layers.Conv2D(
             c2, k, s, 'VALID', use_bias=bias,
-            kernel_initializer=keras.initializers.Constant(w.weight.permute(2, 3, 1, 0).numpy()),
-            bias_initializer=keras.initializers.Constant(w.bias.numpy()) if bias else None, )
+            kernel_initializer=keras.initializers.Constant(w.weight.permute(2, 3, 1, 0).detach().numpy()),
+            bias_initializer=keras.initializers.Constant(w.bias.detach().numpy()) if bias else None, )
 
     def call(self, inputs):
         return self.conv(inputs)
@@ -169,14 +169,14 @@ class tf_SPP(keras.layers.Layer):
 class tf_Detect(keras.layers.Layer):
     def __init__(self, nc=80, anchors=(), ch=(), w=None):  # detection layer
         super(tf_Detect, self).__init__()
-        self.stride = tf.convert_to_tensor(w.stride.numpy(), dtype=tf.float32)
+        self.stride = tf.convert_to_tensor(w.stride.detach().numpy(), dtype=tf.float32)
         self.nc = nc  # number of classes
         self.no = nc + 5  # number of outputs per anchor
         self.nl = len(anchors)  # number of detection layers
         self.na = len(anchors[0]) // 2  # number of anchors
         self.grid = [tf.zeros(1)] * self.nl  # init grid
-        self.anchors = tf.convert_to_tensor(w.anchors.numpy(), dtype=tf.float32)
-        self.anchor_grid = tf.reshape(tf.convert_to_tensor(w.anchor_grid.numpy(), dtype=tf.float32),
+        self.anchors = tf.convert_to_tensor(w.anchors.detach().numpy(), dtype=tf.float32)
+        self.anchor_grid = tf.reshape(tf.convert_to_tensor(w.anchor_grid.detach().numpy(), dtype=tf.float32),
                                       [self.nl, 1, -1, 1, 2])
         self.m = [tf_Conv2d(x, self.no * self.na, 1, w=w.m[i]) for i, x in enumerate(ch)]
         self.export = False  # onnx export
