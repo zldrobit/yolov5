@@ -54,10 +54,16 @@ def detect(opt):
     else:
         backend = 'saved_model'
 
-    if backend == 'saved_model' or backend =='graph_def' or backend=='tflite':
-       import tensorflow as tf
-       from tensorflow import keras
-       stride = None
+    if opt.pycoral:
+        from pycoral.adapters import common
+        from pycoral.utils.edgetpu import list_edge_tpus
+        from pycoral.utils.edgetpu import make_interpreter
+        print(list_edge_tpus())
+        stride = None
+    elif backend == 'saved_model' or backend =='graph_def' or backend=='tflite':
+        import tensorflow as tf
+        from tensorflow import keras
+        stride = None
 
     if backend == 'pytorch':
         model = attempt_load(weights, map_location=device)  # load FP32 model
@@ -130,16 +136,24 @@ def detect(opt):
                                             print_graph=False)
 
     elif backend == 'tflite':
-        # Load TFLite model and allocate tensors.
-        interpreter = tf.lite.Interpreter(
-            model_path=opt.weights[0],
-            experimental_delegates=
-                [tf.lite.experimental.load_delegate('libedgetpu.so.1')] if opt.edgetpu else None)
+        if opt.pycoral:
+            interpreter = make_interpreter(opt.weights[0], device=None)
+        else:
+            # Load TFLite model and allocate tensors.
+            interpreter = tf.lite.Interpreter(
+                model_path=opt.weights[0],
+                experimental_delegates=
+                    [tf.lite.experimental.load_delegate('libedgetpu.so.1')] if opt.edgetpu else None)
+
         interpreter.allocate_tensors()
 
         # Get input and output tensors.
-        input_details = interpreter.get_input_details()
-        output_details = interpreter.get_output_details()
+        if opt.pycoral:
+            input_details = [common.input_details(interpreter, i) for i in range(3)]
+            output_details = [common.output_details(interpreter, 0)]
+        else:
+            input_details = interpreter.get_input_details()
+            output_details = interpreter.get_output_details()
 
     if backend == 'pytorch':
         imgsz = check_img_size(imgsz, s=model.stride.max())  # check img_size
@@ -186,9 +200,13 @@ def detect(opt):
         input_data = img.permute(0, 2, 3, 1).cpu().numpy()
         if opt.tfl_int8:
             input_data = input_data.astype(np.uint8)
-        interpreter.set_tensor(input_details[0]['index'], input_data)
+        if opt.pycoral:
+            common.set_input(interpreter, input_data)
+        else:
+            interpreter.set_tensor(input_details[0]['index'], input_data)
         interpreter.invoke()
-        output_data = interpreter.get_tensor(output_details[0]['index'])
+        output_data = common.output_tensor(interpreter, 0) if opt.pycoral else \
+            interpreter.get_tensor(output_details[0]['index'])
 
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
@@ -231,7 +249,10 @@ def detect(opt):
                 scale, zero_point = input_details[0]['quantization']
                 input_data = input_data / scale + zero_point
                 input_data = input_data.astype(np.uint8)
-            interpreter.set_tensor(input_details[0]['index'], input_data)
+            if opt.pycoral:
+                common.set_input(interpreter, input_data)
+            else:
+                interpreter.set_tensor(input_details[0]['index'], input_data)
             interpreter.invoke()
             if not opt.tfl_detect:
                 output_data = interpreter.get_tensor(output_details[0]['index'])
@@ -244,7 +265,10 @@ def detect(opt):
                 anchors = cfg['anchors']
                 nc = cfg['nc']
                 nl = len(anchors)
-                x = [torch.tensor(interpreter.get_tensor(output_details[i]['index']), device=device) for i in range(nl)]
+                if opt.pycoral:
+                    x = [torch.tensor(output_data=common.output_tensor(interpreter, i)) for i in range(nl)]
+                else:
+                    x = [torch.tensor(interpreter.get_tensor(output_details[i]['index']), device=device) for i in range(nl)]
                 if opt.tfl_int8:
                     for i in range(nl):
                         scale, zero_point = output_details[i]['quantization']
@@ -399,6 +423,7 @@ if __name__ == '__main__':
     parser.add_argument('--tfl-int8', action='store_true', help='use int8 quantized TFLite model')
     parser.add_argument('--no-tf-nms', action='store_true', help='dont proceed NMS due to model w/ TensorFlow NMS')
     parser.add_argument('--edgetpu', action='store_true', help='inference with Edge TPU')
+    parser.add_argument('--pycoral', action='store_true', help='use PyCoral API for Edge TPU')
     parser.add_argument('--line-thickness', default=3, type=int, help='bounding box thickness (pixels)')
     parser.add_argument('--hide-labels', default=False, action='store_true', help='hide labels')
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')
