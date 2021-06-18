@@ -284,11 +284,24 @@ def detect(opt):
                 nmsed_scores = torch.tensor(nmsed_scores.numpy())
                 nmsed_classes = torch.tensor(nmsed_classes.numpy())
                 valid_detections = torch.tensor(valid_detections.numpy())
+                # Denormalize xywh
+                if opt.nms_denorm:
+                    nmsed_boxes[..., 0] *= imgsz[1]  # x
+                    nmsed_boxes[..., 1] *= imgsz[0]  # y
+                    nmsed_boxes[..., 2] *= imgsz[1]  # w
+                    nmsed_boxes[..., 3] *= imgsz[0]  # h
             else:
                 nmsed_boxes = torch.tensor(nmsed_boxes)
                 nmsed_scores = torch.tensor(nmsed_scores)
                 nmsed_classes = torch.tensor(nmsed_classes)
                 valid_detections = torch.tensor(valid_detections)
+                # Denormalize xywh
+                if opt.nms_denorm:
+                    nmsed_boxes[..., 0] *= imgsz[1]  # x
+                    nmsed_boxes[..., 1] *= imgsz[0]  # y
+                    nmsed_boxes[..., 2] *= imgsz[1]  # w
+                    nmsed_boxes[..., 3] *= imgsz[0]  # h
+
             bs = nmsed_boxes.shape[0]
             pred = [None] * bs
             for i in range(bs):
@@ -399,6 +412,7 @@ if __name__ == '__main__':
     parser.add_argument('--tfl-int8', action='store_true', help='use int8 quantized TFLite model')
     parser.add_argument('--no-tf-nms', action='store_true', help='dont proceed NMS due to model w/ TensorFlow NMS')
     parser.add_argument('--edgetpu', action='store_true', help='inference with Edge TPU')
+    parser.add_argument('--nms-denorm', action='store_true', help='denormalize xywh after NMS')
     parser.add_argument('--line-thickness', default=3, type=int, help='bounding box thickness (pixels)')
     parser.add_argument('--hide-labels', default=False, action='store_true', help='hide labels')
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')
