@@ -12,7 +12,7 @@ torchvision>=0.8.1
 tqdm>=4.41.0
 
 # logging -------------------------------------
-tensorboard>=2.4.1
+tensorboard>=2.20.0
 # wandb
 
 # plotting ------------------------------------
